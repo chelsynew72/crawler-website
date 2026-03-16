@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "my-crawler",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "campaign-db",
+      "database_id": "71dab0b5-148f-4232-b1d9-26208914c81d",
+      "remote": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "1f12f4ba3a244f209e9a504650b6a773",
+      "remote": true
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "url-queue",
+        "binding": "QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "url-queue",
+        "max_batch_size": 5,
+        "max_retries": 3
+      }
+    ]
+  }
+}
