@@ -1,26 +1,442 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface Env {
+  DB: D1Database;
+  KV: KVNamespace;
+  QUEUE: Queue;
+  AI: Ai;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function uuid(): string {
+  return crypto.randomUUID();
+}
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
+function notFound(msg = "Not found"): Response {
+  return json({ error: msg }, 404);
+}
+
+function badRequest(msg: string): Response {
+  return json({ error: msg }, 400);
+}
+
+// ── Grok API ─────────────────────────────────────────────────────────────────
+
+async function callGrok(env: Env, messages: any[]): Promise<string | null> {
+  try {
+    const systemMsg = messages.find(m => m.role === "system");
+    const userMsg = messages.find(m => m.role === "user");
+
+    const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct" as any, {
+      messages: [
+        { role: "system", content: systemMsg?.content || "" },
+        { role: "user",   content: userMsg?.content || "" },
+      ],
+      max_tokens: 1000,
+    }) as any;
+
+    return response?.response || null;
+  } catch (error: any) {
+    console.error("AI call failed:", error.message);
+    return null;
+  }
+}
+
+// ── Campaign handlers ────────────────────────────────────────────────────────
+
+async function getCampaigns(env: Env): Promise<Response> {
+  const result = await env.DB.prepare(
+    "SELECT * FROM campaigns ORDER BY created_at DESC"
+  ).all();
+  return json(result.results);
+}
+
+async function createCampaign(env: Env, body: any): Promise<Response> {
+  const { name, goal, output_format, schedule_hours } = body;
+  if (!name || !goal) return badRequest("name and goal are required");
+
+  const id = uuid();
+  await env.DB.prepare(
+    `INSERT INTO campaigns (id, name, goal, output_format, schedule_hours)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(id, name, goal, output_format || "report", schedule_hours || 24).run();
+
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(id).first();
+
+  return json({ message: "Campaign created", campaign }, 201);
+}
+
+async function getCampaign(env: Env, id: string): Promise<Response> {
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(id).first();
+
+  if (!campaign) return notFound("Campaign not found");
+
+  const websites = await env.DB.prepare(
+    "SELECT * FROM websites WHERE campaign_id = ? ORDER BY created_at DESC"
+  ).bind(id).all();
+
+  return json({ ...campaign, websites: websites.results });
+}
+
+// ── Website handlers ─────────────────────────────────────────────────────────
+
+async function addWebsite(env: Env, campaignId: string, body: any): Promise<Response> {
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(campaignId).first();
+
+  if (!campaign) return notFound("Campaign not found");
+
+  const { url } = body;
+  if (!url) return badRequest("url is required");
+
+  try { new URL(url); } catch { return badRequest("Invalid URL format"); }
+
+  const id = uuid();
+  await env.DB.prepare(
+    `INSERT INTO websites (id, campaign_id, url) VALUES (?, ?, ?)`
+  ).bind(id, campaignId, url).run();
+
+  const website = await env.DB.prepare(
+    "SELECT * FROM websites WHERE id = ?"
+  ).bind(id).first();
+
+  return json({ message: "Website added", website }, 201);
+}
+
+// ── Crawl handlers ────────────────────────────────────────────────────────────
+
+async function triggerCrawl(env: Env, campaignId: string): Promise<Response> {
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(campaignId).first() as any;
+
+  if (!campaign) return notFound("Campaign not found");
+
+  const websites = await env.DB.prepare(
+    "SELECT * FROM websites WHERE campaign_id = ?"
+  ).bind(campaignId).all();
+
+  if (websites.results.length === 0) {
+    return badRequest("No websites added to this campaign yet");
+  }
+
+  let queued = 0;
+  for (const site of websites.results as any[]) {
+    await env.DB.prepare(
+      "UPDATE websites SET status = 'crawling' WHERE id = ?"
+    ).bind(site.id).run();
+
+    await env.QUEUE.send({
+      url: site.url,
+      campaignId,
+      websiteId: site.id,
+      baseUrl: site.url,
+      depth: 0,
+      maxDepth: 4,
+      maxPages: 500,
+    });
+    queued++;
+  }
+
+  return json({ message: `Crawl started for ${queued} website(s)`, campaignId });
+}
+
+async function getPages(env: Env, campaignId: string): Promise<Response> {
+  const pages = await env.DB.prepare(
+    `SELECT id, campaign_id, website_id, url, depth, status, word_count, crawled_at
+     FROM crawl_pages WHERE campaign_id = ?
+     ORDER BY crawled_at DESC LIMIT 200`
+  ).bind(campaignId).all();
+
+  return json({ total: pages.results.length, pages: pages.results });
+}
+
+// ── AI Analysis ───────────────────────────────────────────────────────────────
+
+async function analyzeCampaign(env: Env, campaignId: string): Promise<Response> {
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(campaignId).first() as any;
+
+  if (!campaign) return notFound("Campaign not found");
+
+  const pages = await env.DB.prepare(
+    `SELECT id, url, content, word_count FROM crawl_pages
+     WHERE campaign_id = ? AND status = 'done' AND content IS NOT NULL
+     ORDER BY word_count DESC`
+  ).bind(campaignId).all();
+
+  if (pages.results.length === 0) {
+    return badRequest("No crawled pages found. Run a crawl first.");
+  }
+
+  const results = pages.results as any[];
+  const pageFindings: any[] = [];
+
+  // Step 1: analyze each page
+  for (const page of results) {
+    const content = (page.content || "").substring(0, 3000);
+    if (!content || content.length < 50) continue;
+
+    const finding = await callGrok(env, [
+      {
+        role: "system",
+        content: `You are an intelligence analyst. The user has a campaign goal: "${campaign.goal}".
+Analyze the webpage content and extract only what is relevant to this goal.
+Be concise. If nothing is relevant, say so.
+Always respond in this exact JSON format:
+{
+  "relevant": true or false,
+  "findings": ["finding 1", "finding 2"],
+  "summary": "one sentence summary"
+}`
+      },
+      {
+        role: "user",
+        content: `Page URL: ${page.url}\n\nPage content:\n${content}`
+      }
+    ]);
+
+    if (finding) {
+      try {
+        const parsed = JSON.parse(finding);
+        if (parsed.relevant) {
+          await env.DB.prepare(
+            `INSERT INTO insights (id, campaign_id, page_id, type, content, source_url)
+             VALUES (?, ?, ?, 'page', ?, ?)`
+          ).bind(uuid(), campaignId, page.id, JSON.stringify(parsed), page.url).run();
+
+          pageFindings.push({ url: page.url, ...parsed });
+        }
+      } catch { /* skip unparseable */ }
+    }
+  }
+
+  // Step 2: final summary
+  let summary = null;
+
+  if (pageFindings.length > 0) {
+    const findingsText = pageFindings
+      .map((f, i) => `Source ${i + 1}: ${f.url}\nFindings: ${f.findings.join(", ")}`)
+      .join("\n\n");
+
+    const summaryResponse = await callGrok(env, [
+      {
+        role: "system",
+        content: `You are an intelligence analyst writing an executive summary.
+Campaign goal: "${campaign.goal}"
+Write a clear structured summary of the most important insights with sources.
+Respond in this exact JSON format:
+{
+  "headline": "one sentence overall conclusion",
+  "key_findings": [
+    { "point": "finding", "sources": ["url1", "url2"] }
+  ],
+  "recommendation": "what the user should do with this information"
+}`
+      },
+      { role: "user", content: findingsText }
+    ]);
+
+    if (summaryResponse) {
+      try {
+        summary = JSON.parse(summaryResponse);
+        await env.DB.prepare(
+          `INSERT INTO insights (id, campaign_id, type, content)
+           VALUES (?, ?, 'summary', ?)`
+        ).bind(uuid(), campaignId, JSON.stringify(summary)).run();
+      } catch {
+        summary = { raw: summaryResponse };
+      }
+    }
+  }
+
+  return json({
+    campaign: campaign.name,
+    goal: campaign.goal,
+    pages_analyzed: results.length,
+    relevant_pages: pageFindings.length,
+    summary,
+    page_findings: pageFindings,
+  });
+}
+
+async function getInsights(env: Env, campaignId: string): Promise<Response> {
+  const insights = await env.DB.prepare(
+    "SELECT * FROM insights WHERE campaign_id = ? ORDER BY created_at DESC"
+  ).bind(campaignId).all();
+
+  const summary = (insights.results as any[]).find(i => i.type === "summary");
+  const pageInsights = (insights.results as any[]).filter(i => i.type === "page");
+
+  return json({
+    summary: summary ? JSON.parse(summary.content) : null,
+    page_findings: pageInsights.map(i => ({
+      source_url: i.source_url,
+      ...JSON.parse(i.content),
+    })),
+  });
+}
+
+// ── Core crawler ──────────────────────────────────────────────────────────────
+
+async function crawlPage(env: Env, job: any): Promise<void> {
+  const { url, campaignId, websiteId, baseUrl, depth, maxDepth, maxPages } = job;
+
+  const visitedKey = `visited:${campaignId}:${url}`;
+  const visited = await env.KV.get(visitedKey);
+  if (visited) return;
+
+  const countResult = await env.DB.prepare(
+    "SELECT COUNT(*) as count FROM crawl_pages WHERE campaign_id = ?"
+  ).bind(campaignId).first() as any;
+  if (countResult.count >= maxPages) return;
+
+  await env.KV.put(visitedKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
+
+  const pageId = uuid();
+  await env.DB.prepare(
+    `INSERT INTO crawl_pages (id, campaign_id, website_id, url, depth, status)
+     VALUES (?, ?, ?, ?, ?, 'crawling')`
+  ).bind(pageId, campaignId, websiteId, url, depth).run();
+
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; CampaignCrawler/1.0)" },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      await env.DB.prepare("UPDATE crawl_pages SET status = 'failed' WHERE id = ?").bind(pageId).run();
+      return;
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html")) {
+      await env.DB.prepare("UPDATE crawl_pages SET status = 'skipped' WHERE id = ?").bind(pageId).run();
+      return;
+    }
+
+    const html = await response.text();
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+
+    await env.DB.prepare(
+      `UPDATE crawl_pages SET status = 'done', content = ?, word_count = ?,
+       crawled_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(text.substring(0, 50000), wordCount, pageId).run();
+
+    await env.DB.prepare(
+      "UPDATE websites SET pages_found = pages_found + 1 WHERE id = ?"
+    ).bind(websiteId).run();
+
+    if (depth < maxDepth) {
+      const baseDomain = new URL(baseUrl).hostname;
+      const linkRegex = /href=["']([^"']+)["']/gi;
+      const links = new Set<string>();
+      let match;
+
+      while ((match = linkRegex.exec(html)) !== null) {
+        try {
+          const href = new URL(match[1], url).href;
+          if (new URL(href).hostname === baseDomain && !href.includes("#")) {
+            links.add(href);
+          }
+        } catch { /* invalid URL */ }
+      }
+
+      for (const link of links) {
+        const alreadyVisited = await env.KV.get(`visited:${campaignId}:${link}`);
+        if (!alreadyVisited) {
+          await env.QUEUE.send({ url: link, campaignId, websiteId, baseUrl, depth: depth + 1, maxDepth, maxPages });
+        }
+      }
+    }
+  } catch {
+    await env.DB.prepare("UPDATE crawl_pages SET status = 'failed' WHERE id = ?").bind(pageId).run();
+  }
+}
+
+async function testGrok(env: Env): Promise<Response> {
+  const result = await callGrok(env, [
+    { role: "user", content: "Reply with exactly this JSON: {\"status\": \"working\"}" }
+  ]);
+  return json({ grok_response: result });
+}
+
+// ── Main Worker ───────────────────────────────────────────────────────────────
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		const url = new URL(request.url);
-		switch (url.pathname) {
-			case '/message':
-				return new Response('Hello, World!');
-			case '/random':
-				return new Response(crypto.randomUUID());
-			default:
-				return new Response('Not Found', { status: 404 });
-		}
-	},
-} satisfies ExportedHandler<Env>;
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+
+    if (method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
+    if (method === "GET"  && path === "/campaigns") return getCampaigns(env);
+    if (method === "POST" && path === "/campaigns") return createCampaign(env, await request.json());
+
+    const campaignMatch  = path.match(/^\/campaigns\/([^/]+)$/);
+    const websiteMatch   = path.match(/^\/campaigns\/([^/]+)\/websites$/);
+    const crawlMatch     = path.match(/^\/campaigns\/([^/]+)\/crawl$/);
+    const pagesMatch     = path.match(/^\/campaigns\/([^/]+)\/pages$/);
+    const analyzeMatch   = path.match(/^\/campaigns\/([^/]+)\/analyze$/);
+    const insightsMatch  = path.match(/^\/campaigns\/([^/]+)\/insights$/);
+
+    if (method === "GET"  && campaignMatch)  return getCampaign(env, campaignMatch[1]);
+    if (method === "POST" && websiteMatch)   return addWebsite(env, websiteMatch[1], await request.json());
+    if (method === "POST" && crawlMatch)     return triggerCrawl(env, crawlMatch[1]);
+    if (method === "GET"  && pagesMatch)     return getPages(env, pagesMatch[1]);
+    if (method === "POST" && analyzeMatch)   return analyzeCampaign(env, analyzeMatch[1]);
+    if (method === "GET"  && insightsMatch)  return getInsights(env, insightsMatch[1]);
+
+    // GET /debug/grok — test Grok connection
+    if (method === "GET" && path === "/debug/grok") {
+      return testGrok(env);
+    }
+
+    return notFound();
+  },
+
+  async queue(batch: MessageBatch, env: Env): Promise<void> {
+    for (const message of batch.messages) {
+      await crawlPage(env, message.body as any);
+      message.ack();
+    }
+  },
+};
