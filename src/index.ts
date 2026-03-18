@@ -237,7 +237,8 @@ Always respond in this exact JSON format:
 
   if (pageFindings.length > 0) {
     const findingsText = pageFindings
-      .map((f, i) => `Source ${i + 1}: ${f.url}\nFindings: ${f.findings.join(", ")}`)
+      .slice(0, 10) // only top 10 findings for summary
+      .map((f, i) => `Source ${i + 1}: ${f.url}\nSummary: ${f.summary}`)
       .join("\n\n");
 
     const summaryResponse = await callGrok(env, [
@@ -390,6 +391,78 @@ async function testGrok(env: Env): Promise<Response> {
   return json({ grok_response: result });
 }
 
+async function generateSummary(env: Env, campaignId: string): Promise<Response> {
+  const campaign = await env.DB.prepare(
+    "SELECT * FROM campaigns WHERE id = ?"
+  ).bind(campaignId).first() as any;
+
+  if (!campaign) return notFound("Campaign not found");
+
+  // Get existing page insights already saved
+  const insights = await env.DB.prepare(
+    `SELECT content, source_url FROM insights
+     WHERE campaign_id = ? AND type = 'page'
+     ORDER BY created_at DESC LIMIT 10`
+  ).bind(campaignId).all();
+
+  if (insights.results.length === 0) {
+    return badRequest("No page findings yet. Run /analyze first.");
+  }
+
+  const findingsText = (insights.results as any[])
+    .map((i, idx) => {
+      const c = JSON.parse(i.content);
+      return `Source ${idx + 1}: ${i.source_url}\nSummary: ${c.summary}`;
+    })
+    .join("\n\n");
+
+  const summaryResponse = await env.AI.run(
+    "@cf/meta/llama-3.1-8b-instruct" as any,
+    {
+      messages: [
+        {
+          role: "system",
+          content: `You are an intelligence analyst. Campaign goal: "${campaign.goal}".
+Write a short executive summary of findings. Respond in JSON:
+{
+  "headline": "one sentence conclusion",
+  "key_findings": [
+    { "point": "finding", "sources": ["url"] }
+  ],
+  "recommendation": "what to do next"
+}`
+        },
+        { role: "user", content: findingsText }
+      ],
+      max_tokens: 800,
+    }
+  ) as any;
+
+  const raw = summaryResponse?.response || null;
+  if (!raw) return json({ error: "AI returned nothing" });
+
+  try {
+    // Extract JSON from response
+   const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const cleaned = jsonMatch ? jsonMatch[0].replace(/\\\\/g, "\\").replace(/\\]/g, "]") : null;
+    const parsed = cleaned ? JSON.parse(cleaned) : { raw };
+
+    // Save to DB
+    await env.DB.prepare(
+      `INSERT INTO insights (id, campaign_id, type, content)
+       VALUES (?, ?, 'summary', ?)`
+    ).bind(uuid(), campaignId, JSON.stringify(parsed)).run();
+
+    return json({
+      campaign: campaign.name,
+      goal: campaign.goal,
+      summary: parsed,
+    });
+  } catch {
+    return json({ raw });
+  }
+}
+
 // ── Main Worker ───────────────────────────────────────────────────────────────
 
 export default {
@@ -428,6 +501,12 @@ export default {
     // GET /debug/grok — test Grok connection
     if (method === "GET" && path === "/debug/grok") {
       return testGrok(env);
+    }
+
+    // POST /campaigns/:id/summary — generate summary from existing findings
+    const summaryMatch = path.match(/^\/campaigns\/([^/]+)\/summary$/);
+    if (method === "POST" && summaryMatch) {
+      return generateSummary(env, summaryMatch[1]);
     }
 
     return notFound();
