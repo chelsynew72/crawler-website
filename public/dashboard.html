@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Dashboard — Campaign Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --orange:#E5510A;--orange-light:#FF6B2B;--orange-bg:#FFF7ED;--orange-border:#FED7AA;
+  --bg:#F7F6F2;--bg-2:#EFEFEB;--white:#FFFFFF;
+  --border:#E2E0D8;--border-dark:#C8C5BB;
+  --text:#1A1916;--text-2:#6B6860;--text-3:#9C9A94;
+  --green:#059669;--green-bg:#F0FDF4;--green-border:#BBF7D0;
+  --blue:#2563EB;--blue-bg:#EFF6FF;--blue-border:#BFDBFE;
+  --red:#DC2626;--red-bg:#FEF2F2;--red-border:#FECACA;
+  --ff-serif:'Instrument Serif',Georgia,serif;
+  --ff-sans:'Geist',system-ui,sans-serif;
+  --ff-mono:'Geist Mono',monospace;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--ff-sans);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+.grid-bg{position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:100px 100px;pointer-events:none;z-index:0}
+
+/* ── SIDEBAR ── */
+.layout{display:flex;min-height:100vh;position:relative;z-index:1}
+.sidebar{width:220px;flex-shrink:0;background:var(--white);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:50}
+.sidebar-top{padding:20px 16px 16px;border-bottom:1px solid var(--border)}
+.sidebar-brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text);font-weight:600;font-size:14px;margin-bottom:20px}
+.brand-icon{width:26px;height:26px;background:var(--orange);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.brand-icon svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.btn-new{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;background:var(--orange);color:#fff;border:none;border-radius:7px;font-family:var(--ff-sans);font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;text-decoration:none}
+.btn-new:hover{background:var(--orange-light)}
+.btn-new svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.sidebar-nav{padding:12px 8px;flex:1;overflow-y:auto}
+.nav-section{margin-bottom:20px}
+.nav-section-label{font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-family:var(--ff-mono);padding:0 8px;margin-bottom:4px}
+.nav-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;text-decoration:none;color:var(--text-2);font-size:13px;font-weight:400;cursor:pointer;transition:all .15s;border:none;background:none;width:100%;text-align:left;font-family:var(--ff-sans)}
+.nav-item:hover{background:var(--bg);color:var(--text)}
+.nav-item.active{background:var(--bg-2);color:var(--text);font-weight:500}
+.nav-item svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-item .badge{margin-left:auto;font-size:10px;font-family:var(--ff-mono);background:var(--bg-2);color:var(--text-3);padding:1px 6px;border-radius:100px;border:1px solid var(--border)}
+.nav-item.active .badge{background:var(--orange-bg);color:var(--orange);border-color:var(--orange-border)}
+.sidebar-bottom{padding:12px 8px;border-top:1px solid var(--border)}
+.user-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:7px;cursor:pointer;transition:background .15s}
+.user-row:hover{background:var(--bg)}
+.user-av{width:28px;height:28px;background:linear-gradient(135deg,#1D4ED8,#7C3AED);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-name{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-plan{font-size:11px;color:var(--text-3);font-family:var(--ff-mono)}
+.user-row svg{width:14px;height:14px;stroke:var(--text-3);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+
+/* ── MAIN ── */
+.main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{height:56px;background:rgba(247,246,242,0.9);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 28px;gap:16px;position:sticky;top:0;z-index:40}
+.topbar-title{font-family:var(--ff-serif);font-size:18px;font-weight:400;color:var(--text)}
+.topbar-title em{font-style:italic;color:var(--orange)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.btn-icon{width:32px;height:32px;border:1px solid var(--border-dark);border-radius:7px;background:var(--white);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,border-color .15s}
+.btn-icon:hover{background:var(--bg);border-color:var(--text-3)}
+.btn-icon svg{width:15px;height:15px;stroke:var(--text-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.search-wrap{display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--border-dark);border-radius:7px;padding:0 12px;height:32px}
+.search-wrap svg{width:13px;height:13px;stroke:var(--text-3);fill:none;stroke-width:2}
+.search-input{border:none;outline:none;font-family:var(--ff-sans);font-size:13px;color:var(--text);background:transparent;width:180px}
+.search-input::placeholder{color:var(--text-3)}
+
+.content{padding:28px;flex:1}
+
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat-card{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:18px 20px}
+.stat-label{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;font-family:var(--ff-mono);margin-bottom:6px}
+.stat-val{font-size:26px;font-weight:600;color:var(--text);font-family:var(--ff-mono);line-height:1}
+.stat-val.orange{color:var(--orange)}
+.stat-delta{font-size:11px;color:var(--text-3);margin-top:4px;display:flex;align-items:center;gap:3px}
+.stat-delta.up{color:var(--green)}
+.stat-delta svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── SECTION HEADER ── */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-hdr-left{display:flex;align-items:center;gap:10px}
+.section-title{font-size:14px;font-weight:600;color:var(--text)}
+.section-count{font-size:12px;color:var(--text-3);font-family:var(--ff-mono);background:var(--bg-2);border:1px solid var(--border);padding:2px 8px;border-radius:100px}
+.btn-sm{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;font-family:var(--ff-sans);cursor:pointer;transition:all .15s;border:1px solid;text-decoration:none}
+.btn-sm-primary{background:var(--orange);color:#fff;border-color:var(--orange)}
+.btn-sm-primary:hover{background:var(--orange-light);border-color:var(--orange-light)}
+.btn-sm-primary svg{stroke:#fff}
+.btn-sm-ghost{background:var(--white);color:var(--text-2);border-color:var(--border-dark)}
+.btn-sm-ghost:hover{background:var(--bg);color:var(--text);border-color:var(--text-2)}
+.btn-sm svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── CAMPAIGN CARDS ── */
+.campaigns-grid{display:flex;flex-direction:column;gap:10px}
+.campaign-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px 22px;cursor:pointer;transition:border-color .2s,transform .15s,box-shadow .15s;text-decoration:none;display:block;color:var(--text)}
+.campaign-card:hover{border-color:var(--border-dark);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,0.05)}
+.campaign-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}
+.campaign-name{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px}
+.campaign-goal{font-size:13px;color:var(--text-2);font-weight:300;line-height:1.5;max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.campaign-card-meta{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.meta-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-3);font-family:var(--ff-mono)}
+.meta-item svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.status-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:500;font-family:var(--ff-mono);border:1px solid;flex-shrink:0}
+.status-dot{width:5px;height:5px;border-radius:50%}
+.s-active{color:var(--green);background:var(--green-bg);border-color:var(--green-border)}
+.s-active .status-dot{background:var(--green);animation:pulse2 2s ease-in-out infinite}
+.s-crawling{color:var(--orange);background:var(--orange-bg);border-color:var(--orange-border)}
+.s-crawling .status-dot{background:var(--orange);animation:pulse2 1s ease-in-out infinite}
+.s-paused{color:var(--text-3);background:var(--bg-2);border-color:var(--border)}
+.s-paused .status-dot{background:var(--text-3)}
+.s-done{color:var(--blue);background:var(--blue-bg);border-color:var(--blue-border)}
+.s-done .status-dot{background:var(--blue)}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.4}}
+.campaign-progress{margin-top:12px}
+.progress-row{display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);font-family:var(--ff-mono);margin-bottom:5px}
+.progress-bar{height:3px;background:var(--bg-2);border-radius:100px;overflow:hidden}
+.progress-fill{height:100%;border-radius:100px;background:var(--orange);transition:width .5s ease}
+.campaign-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.act-btn{width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:var(--white);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;color:var(--text-3)}
+.act-btn:hover{background:var(--bg);border-color:var(--border-dark);color:var(--text-2)}
+.act-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.act-btn.danger:hover{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}
+
+/* ── EMPTY STATE ── */
+.empty-state{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:60px 40px;text-align:center}
+.empty-icon{width:52px;height:52px;background:var(--bg);border:1px solid var(--border-dark);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.empty-icon svg{width:22px;height:22px;stroke:var(--text-3);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.empty-title{font-family:var(--ff-serif);font-size:20px;font-weight:400;color:var(--text);margin-bottom:6px}
+.empty-sub{font-size:14px;color:var(--text-2);font-weight:300;margin-bottom:24px}
+
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:200;display:none;align-items:flex-start;justify-content:center;padding:80px 24px;backdrop-filter:blur(4px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--white);border:1px solid var(--border);border-radius:16px;width:100%;max-width:520px;padding:32px;animation:slideUp .3s cubic-bezier(.22,1,.36,1)}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.modal-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.modal-title{font-family:var(--ff-serif);font-size:24px;font-weight:400;color:var(--text)}
+.modal-title em{font-style:italic;color:var(--orange)}
+.modal-close{width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:var(--white);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;color:var(--text-3);flex-shrink:0}
+.modal-close:hover{background:var(--bg);color:var(--text-2)}
+.modal-close svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.form-group{margin-bottom:16px}
+.form-label{font-size:13px;font-weight:500;color:var(--text);margin-bottom:5px;display:flex;align-items:center;justify-content:space-between}
+.form-hint{font-size:11px;color:var(--text-3);font-weight:400}
+.form-input{width:100%;padding:10px 13px;border:1px solid var(--border-dark);border-radius:8px;background:var(--white);color:var(--text);font-family:var(--ff-sans);font-size:14px;font-weight:300;outline:none;transition:border-color .15s,box-shadow .15s;resize:vertical}
+.form-input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(229,81,10,0.1)}
+.form-input::placeholder{color:var(--text-3)}
+textarea.form-input{min-height:90px;line-height:1.55}
+.format-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.format-opt{border:1px solid var(--border-dark);border-radius:8px;padding:12px;cursor:pointer;transition:all .15s;position:relative}
+.format-opt:hover{border-color:var(--border-dark);background:var(--bg)}
+.format-opt.selected{border-color:var(--orange);background:var(--orange-bg)}
+.format-opt input{position:absolute;opacity:0;pointer-events:none}
+.format-name{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
+.format-desc{font-size:11px;color:var(--text-3);font-weight:300}
+.format-opt.selected .format-name{color:var(--orange)}
+.sched-row{display:flex;gap:8px}
+.sched-opt{flex:1;border:1px solid var(--border-dark);border-radius:7px;padding:9px 10px;cursor:pointer;transition:all .15s;text-align:center;font-size:12px;font-family:var(--ff-mono);color:var(--text-2)}
+.sched-opt:hover{background:var(--bg)}
+.sched-opt.selected{border-color:var(--orange);background:var(--orange-bg);color:var(--orange)}
+.modal-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
+.btn-cancel{background:var(--white);border:1px solid var(--border-dark);color:var(--text-2);font-family:var(--ff-sans);font-size:13px;font-weight:400;padding:8px 16px;border-radius:7px;cursor:pointer;transition:all .15s}
+.btn-cancel:hover{background:var(--bg);color:var(--text)}
+.btn-create{background:var(--orange);color:#fff;border:none;font-family:var(--ff-sans);font-size:13px;font-weight:500;padding:8px 20px;border-radius:7px;cursor:pointer;transition:background .15s;display:flex;align-items:center;gap:6px}
+.btn-create:hover{background:var(--orange-light)}
+.btn-create svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.campaign-card{animation:fadeIn .3s cubic-bezier(.22,1,.36,1) both}
+
+@media(max-width:900px){
+  .sidebar{width:60px}
+  .sidebar-brand span,.nav-item span,.nav-section-label,.user-info,.btn-new span{display:none}
+  .btn-new{padding:8px;justify-content:center}
+  .main{margin-left:60px}
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:600px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+  .stats-row{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <a href="index.html" class="sidebar-brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </div>
+        <span>Campaign Intel</span>
+      </a>
+      <button class="btn-new" onclick="openModal()">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>New Campaign</span>
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-label">Workspace</div>
+        <button class="nav-item active" onclick="setNav(this)">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Campaigns</span>
+          <span class="badge" id="nav-count">3</span>
+        </button>
+        <button class="nav-item" onclick="setNav(this)">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span>All Pages</span>
+        </button>
+        <button class="nav-item" onclick="setNav(this)">
+          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Insights</span>
+        </button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">Account</div>
+        <button class="nav-item" onclick="setNav(this)">
+          <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Usage</span>
+        </button>
+        <button class="nav-item" onclick="setNav(this)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="user-row">
+        <div class="user-av">JS</div>
+        <div class="user-info">
+          <div class="user-name">John Smith</div>
+          <div class="user-plan">Free plan</div>
+        </div>
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <h1 class="topbar-title">Your <em>campaigns</em></h1>
+      <div class="topbar-right">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input class="search-input" placeholder="Search campaigns..." oninput="filterCampaigns(this.value)"/>
+        </div>
+        <button class="btn-icon" title="Notifications">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- STATS -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Total Campaigns</div>
+          <div class="stat-val orange" id="stat-campaigns">3</div>
+          <div class="stat-delta up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>+1 this week</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pages Crawled</div>
+          <div class="stat-val" id="stat-pages">1,847</div>
+          <div class="stat-delta up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>+312 today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Websites Tracked</div>
+          <div class="stat-val" id="stat-sites">7</div>
+          <div class="stat-delta">Across all campaigns</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">AI Insights</div>
+          <div class="stat-val" id="stat-insights">94</div>
+          <div class="stat-delta up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>+47 last run</div>
+        </div>
+      </div>
+
+      <!-- CAMPAIGNS LIST -->
+      <div class="section-hdr">
+        <div class="section-hdr-left">
+          <span class="section-title">All campaigns</span>
+          <span class="section-count" id="list-count">3</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-sm btn-sm-ghost">
+            <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Sort
+          </button>
+          <button class="btn-sm btn-sm-primary" onclick="openModal()">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Campaign
+          </button>
+        </div>
+      </div>
+
+      <div class="campaigns-grid" id="campaigns-list"></div>
+
+    </div>
+  </main>
+</div>
+
+<!-- CREATE CAMPAIGN MODAL -->
+<div class="modal-overlay" id="modal" onclick="closeModalOutside(event)">
+  <div class="modal" id="modal-inner">
+    <div class="modal-hdr">
+      <h2 class="modal-title">New <em>campaign</em></h2>
+      <button class="modal-close" onclick="closeModal()">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Campaign name <span class="form-hint">required</span></label>
+      <input type="text" class="form-input" id="c-name" placeholder="e.g. Competitor Pricing Research"/>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Campaign goal <span class="form-hint">what should AI look for?</span></label>
+      <textarea class="form-input" id="c-goal" placeholder="e.g. Find all pricing pages, product tiers, discount offers, and any mentions of free trials across competitor websites."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Output format</label>
+      <div class="format-grid" id="format-grid">
+        <label class="format-opt selected">
+          <input type="radio" name="fmt" value="report" checked/>
+          <div class="format-name">Report</div>
+          <div class="format-desc">PDF / Word document with summary</div>
+        </label>
+        <label class="format-opt">
+          <input type="radio" name="fmt" value="json"/>
+          <div class="format-name">JSON</div>
+          <div class="format-desc">Machine-readable structured data</div>
+        </label>
+        <label class="format-opt">
+          <input type="radio" name="fmt" value="csv"/>
+          <div class="format-name">CSV</div>
+          <div class="format-desc">Spreadsheet with source URLs</div>
+        </label>
+        <label class="format-opt">
+          <input type="radio" name="fmt" value="dashboard"/>
+          <div class="format-name">Dashboard</div>
+          <div class="format-desc">Visual in-app insights view</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Crawl schedule</label>
+      <div class="sched-row" id="sched-row">
+        <div class="sched-opt selected" onclick="selectSched(this,'6h')">Every 6h</div>
+        <div class="sched-opt" onclick="selectSched(this,'12h')">Every 12h</div>
+        <div class="sched-opt" onclick="selectSched(this,'24h')">Daily</div>
+        <div class="sched-opt" onclick="selectSched(this,'48h')">Every 2d</div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-create" onclick="createCampaign()">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Create Campaign
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA ─────────────────────────────────────────────────────────────────────
+const campaigns = [
+  {
+    id:'c1', name:'Competitor Pricing Intelligence',
+    goal:'Find all pricing pages, product tiers, discount offers, and free trial mentions across competitor websites.',
+    format:'report', schedule:'24h', status:'crawling',
+    websites:3, pages:1284, insights:47, progress:78,
+    created:'Mar 16, 2026'
+  },
+  {
+    id:'c2', name:'SEO Content Gap Analysis',
+    goal:'Identify blog posts, landing pages, and content topics that competitors rank for but we do not currently cover.',
+    format:'csv', schedule:'48h', status:'active',
+    websites:2, pages:563, insights:29, progress:100,
+    created:'Mar 12, 2026'
+  },
+  {
+    id:'c3', name:'Product Feature Tracking',
+    goal:'Track new product features, changelog updates, and feature announcements on competitor product and docs pages.',
+    format:'dashboard', schedule:'6h', status:'active',
+    websites:2, pages:0, insights:0, progress:0,
+    created:'Mar 18, 2026'
+  }
+];
+
+function statusClass(s){ return {crawling:'s-crawling',active:'s-active',paused:'s-paused',done:'s-done'}[s]||'s-active' }
+function statusLabel(s){ return {crawling:'Crawling',active:'Active',paused:'Paused',done:'Done'}[s]||s }
+
+function renderCard(c, delay=0){
+  return `
+  <a class="campaign-card" href="campaign.html?id=${c.id}" style="animation-delay:${delay}ms">
+    <div class="campaign-card-top">
+      <div style="flex:1;min-width:0">
+        <div class="campaign-name">${c.name}</div>
+        <div class="campaign-goal">${c.goal}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span class="status-pill ${statusClass(c.status)}">
+          <span class="status-dot"></span>${statusLabel(c.status)}
+        </span>
+        <div class="campaign-actions" onclick="event.preventDefault()">
+          <button class="act-btn" title="Trigger crawl" onclick="triggerCrawl('${c.id}')">
+            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+          <button class="act-btn" title="Edit">
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="act-btn danger" title="Delete" onclick="deleteCampaign('${c.id}')">
+            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="campaign-card-meta">
+      <span class="meta-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>${c.websites} website${c.websites!==1?'s':''}</span>
+      <span class="meta-item"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>${c.pages.toLocaleString()} pages</span>
+      <span class="meta-item"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>${c.insights} insights</span>
+      <span class="meta-item"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${c.created}</span>
+      <span class="meta-item" style="margin-left:auto;font-family:var(--ff-mono)">${c.format.toUpperCase()}</span>
+    </div>
+    ${c.status==='crawling'?`
+    <div class="campaign-progress">
+      <div class="progress-row"><span>Crawl progress</span><span>${c.progress}%</span></div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${c.progress}%"></div></div>
+    </div>`:''}
+  </a>`;
+}
+
+function renderAll(list){
+  const el=document.getElementById('campaigns-list');
+  if(!list.length){
+    el.innerHTML=`<div class="empty-state">
+      <div class="empty-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div>
+      <div class="empty-title">No campaigns found</div>
+      <p class="empty-sub">Try a different search or create a new campaign.</p>
+      <button class="btn-sm btn-sm-primary" onclick="openModal()">
+        <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Campaign
+      </button>
+    </div>`;
+    return;
+  }
+  el.innerHTML=list.map((c,i)=>renderCard(c,i*60)).join('');
+  document.getElementById('list-count').textContent=list.length;
+}
+
+function filterCampaigns(q){
+  const f=campaigns.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())||c.goal.toLowerCase().includes(q.toLowerCase()));
+  renderAll(f);
+}
+
+function setNav(btn){
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+function openModal(){document.getElementById('modal').classList.add('open');document.body.style.overflow='hidden'}
+function closeModal(){document.getElementById('modal').classList.remove('open');document.body.style.overflow=''}
+function closeModalOutside(e){if(e.target===document.getElementById('modal'))closeModal()}
+
+document.querySelectorAll('.format-opt').forEach(opt=>{
+  opt.addEventListener('click',()=>{
+    document.querySelectorAll('.format-opt').forEach(o=>o.classList.remove('selected'));
+    opt.classList.add('selected');
+  });
+});
+
+function selectSched(el, val){
+  document.querySelectorAll('.sched-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function createCampaign(){
+  const name=document.getElementById('c-name').value.trim();
+  const goal=document.getElementById('c-goal').value.trim();
+  if(!name||!goal){
+    if(!name)document.getElementById('c-name').style.borderColor='var(--red)';
+    if(!goal)document.getElementById('c-goal').style.borderColor='var(--red)';
+    return;
+  }
+  const fmt=document.querySelector('input[name="fmt"]:checked')?.value||'report';
+  const sched=document.querySelector('.sched-opt.selected')?.textContent||'Daily';
+  const nc={
+    id:'c'+(campaigns.length+1),name,goal,format:fmt,schedule:sched,
+    status:'active',websites:0,pages:0,insights:0,progress:0,
+    created:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+  };
+  campaigns.unshift(nc);
+  renderAll(campaigns);
+  document.getElementById('stat-campaigns').textContent=campaigns.length;
+  document.getElementById('nav-count').textContent=campaigns.length;
+  document.getElementById('list-count').textContent=campaigns.length;
+  closeModal();
+  document.getElementById('c-name').value='';
+  document.getElementById('c-goal').value='';
+}
+
+function triggerCrawl(id){
+  const c=campaigns.find(x=>x.id===id);
+  if(!c)return;
+  c.status='crawling';c.progress=0;
+  renderAll(campaigns);
+}
+
+function deleteCampaign(id){
+  if(!confirm('Delete this campaign? This cannot be undone.'))return;
+  const i=campaigns.findIndex(x=>x.id===id);
+  if(i>-1)campaigns.splice(i,1);
+  renderAll(campaigns);
+  document.getElementById('stat-campaigns').textContent=campaigns.length;
+  document.getElementById('nav-count').textContent=campaigns.length;
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+renderAll(campaigns);
+
+// Keyboard shortcut
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closeModal();
+  if((e.metaKey||e.ctrlKey)&&e.key==='k')openModal();
+});
+</script>
+</body>
+</html>
