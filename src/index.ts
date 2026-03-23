@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+
 
 interface Env {
   DB: D1Database;
@@ -9,7 +9,7 @@ interface Env {
   AI: Ai;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -35,7 +35,7 @@ function badRequest(msg: string): Response {
   return json({ error: msg }, 400);
 }
 
-// ── Grok API ─────────────────────────────────────────────────────────────────
+
 
 async function callGrok(env: Env, messages: any[]): Promise<string | null> {
   try {
@@ -57,7 +57,7 @@ async function callGrok(env: Env, messages: any[]): Promise<string | null> {
   }
 }
 
-// ── Campaign handlers ────────────────────────────────────────────────────────
+
 
 async function getCampaigns(env: Env): Promise<Response> {
   const result = await env.DB.prepare(
@@ -97,7 +97,7 @@ async function getCampaign(env: Env, id: string): Promise<Response> {
   return json({ ...campaign, websites: websites.results });
 }
 
-// ── Website handlers ─────────────────────────────────────────────────────────
+
 
 async function addWebsite(env: Env, campaignId: string, body: any): Promise<Response> {
   const campaign = await env.DB.prepare(
@@ -123,7 +123,7 @@ async function addWebsite(env: Env, campaignId: string, body: any): Promise<Resp
   return json({ message: "Website added", website }, 201);
 }
 
-// ── Crawl handlers ────────────────────────────────────────────────────────────
+
 
 async function triggerCrawl(env: Env, campaignId: string): Promise<Response> {
   const campaign = await env.DB.prepare(
@@ -171,7 +171,7 @@ async function getPages(env: Env, campaignId: string): Promise<Response> {
   return json({ total: pages.results.length, pages: pages.results });
 }
 
-// ── AI Analysis ───────────────────────────────────────────────────────────────
+
 
 async function analyzeCampaign(env: Env, campaignId: string): Promise<Response> {
   const campaign = await env.DB.prepare(
@@ -193,7 +193,7 @@ async function analyzeCampaign(env: Env, campaignId: string): Promise<Response> 
   const results = pages.results as any[];
   const pageFindings: any[] = [];
 
-  // Step 1: analyze each page
+  
   for (const page of results) {
     const content = (page.content || "").substring(0, 3000);
     if (!content || content.length < 50) continue;
@@ -228,11 +228,11 @@ Always respond in this exact JSON format:
 
           pageFindings.push({ url: page.url, ...parsed });
         }
-      } catch { /* skip unparseable */ }
+      } catch {  }
     }
   }
 
-  // Step 2: final summary
+  
   let summary = null;
 
   if (pageFindings.length > 0) {
@@ -299,7 +299,7 @@ async function getInsights(env: Env, campaignId: string): Promise<Response> {
   });
 }
 
-// ── Core crawler ──────────────────────────────────────────────────────────────
+
 
 async function crawlPage(env: Env, job: any): Promise<void> {
   const { url, campaignId, websiteId, baseUrl, depth, maxDepth, maxPages } = job;
@@ -369,7 +369,7 @@ async function crawlPage(env: Env, job: any): Promise<void> {
           if (new URL(href).hostname === baseDomain && !href.includes("#")) {
             links.add(href);
           }
-        } catch { /* invalid URL */ }
+        } catch { }
       }
 
       for (const link of links) {
@@ -463,7 +463,7 @@ Write a short executive summary of findings. Respond in JSON:
   }
 }
 
-// ── Main Worker ───────────────────────────────────────────────────────────────
+
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -498,12 +498,12 @@ export default {
     if (method === "POST" && analyzeMatch)   return analyzeCampaign(env, analyzeMatch[1]);
     if (method === "GET"  && insightsMatch)  return getInsights(env, insightsMatch[1]);
 
-    // GET /debug/grok — test Grok connection
+   
     if (method === "GET" && path === "/debug/grok") {
       return testGrok(env);
     }
 
-    // POST /campaigns/:id/summary — generate summary from existing findings
+   
     const summaryMatch = path.match(/^\/campaigns\/([^/]+)\/summary$/);
     if (method === "POST" && summaryMatch) {
       return generateSummary(env, summaryMatch[1]);
