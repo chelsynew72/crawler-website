@@ -518,4 +518,29 @@ export default {
       message.ack();
     }
   },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Get all active campaigns
+    const campaigns = await env.DB.prepare(
+      "SELECT * FROM campaigns WHERE status = 'active'"
+    ).all();
+
+    for (const campaign of campaigns.results as any[]) {
+      const websites = await env.DB.prepare(
+        "SELECT * FROM websites WHERE campaign_id = ?"
+      ).bind(campaign.id).all();
+
+      for (const site of websites.results as any[]) {
+        await env.QUEUE.send({
+          url: site.url,
+          campaignId: campaign.id,
+          websiteId: site.id,
+          baseUrl: site.url,
+          depth: 0,
+          maxDepth: 4,
+          maxPages: 500,
+        });
+      }
+    }
+  },
 };
