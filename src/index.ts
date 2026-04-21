@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+
 
 
 
@@ -22,7 +22,7 @@ function json(data: unknown, status = 200): Response {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
   });
 }
@@ -57,44 +57,56 @@ async function callGrok(env: Env, messages: any[]): Promise<string | null> {
   }
 }
 
-
-
-async function getCampaigns(env: Env): Promise<Response> {
+async function getCampaigns(env: Env, request: Request): Promise<Response> {
+  const userId = getTokenUserId(request);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
   const result = await env.DB.prepare(
-    "SELECT * FROM campaigns ORDER BY created_at DESC"
-  ).all();
+    "SELECT * FROM campaigns WHERE user_id = ? ORDER BY created_at DESC"
+  ).bind(userId).all();
   return json(result.results);
 }
 
-async function createCampaign(env: Env, body: any): Promise<Response> {
+async function createCampaign(env: Env, body: any, request: Request): Promise<Response> {
+  const userId = getTokenUserId(request);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
   const { name, goal, output_format, schedule_hours } = body;
   if (!name || !goal) return badRequest("name and goal are required");
-
   const id = uuid();
   await env.DB.prepare(
-    `INSERT INTO campaigns (id, name, goal, output_format, schedule_hours)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(id, name, goal, output_format || "report", schedule_hours || 24).run();
-
+    `INSERT INTO campaigns (id, name, goal, output_format, schedule_hours, user_id)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(id, name, goal, output_format || "report", schedule_hours || 24, userId).run();
   const campaign = await env.DB.prepare(
     "SELECT * FROM campaigns WHERE id = ?"
   ).bind(id).first();
-
   return json({ message: "Campaign created", campaign }, 201);
 }
 
-async function getCampaign(env: Env, id: string): Promise<Response> {
+async function getCampaign(env: Env, id: string, request: Request): Promise<Response> {
+  const userId = getTokenUserId(request);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
   const campaign = await env.DB.prepare(
-    "SELECT * FROM campaigns WHERE id = ?"
-  ).bind(id).first();
-
+    "SELECT * FROM campaigns WHERE id = ? AND user_id = ?"
+  ).bind(id, userId).first();
   if (!campaign) return notFound("Campaign not found");
-
   const websites = await env.DB.prepare(
     "SELECT * FROM websites WHERE campaign_id = ? ORDER BY created_at DESC"
   ).bind(id).all();
-
   return json({ ...campaign, websites: websites.results });
+}
+
+async function deleteCampaign(env: Env, id: string, request: Request): Promise<Response> {
+  const userId = getTokenUserId(request);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
+  const campaign = await env.DB.prepare(
+    "SELECT id FROM campaigns WHERE id = ? AND user_id = ?"
+  ).bind(id, userId).first();
+  if (!campaign) return notFound("Campaign not found");
+  await env.DB.prepare("DELETE FROM insights WHERE campaign_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM crawl_pages WHERE campaign_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM websites WHERE campaign_id = ?").bind(id).run();
+  await env.DB.prepare("DELETE FROM campaigns WHERE id = ?").bind(id).run();
+  return json({ message: "Campaign deleted" });
 }
 
 
@@ -463,6 +475,75 @@ Write a short executive summary of findings. Respond in JSON:
   }
 }
 
+// ── Simple JWT helpers ────────────────────────────────────────────────────────
+
+async function hashPassword(pw: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pw);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
+function makeToken(userId: string): string {
+  const payload = btoa(JSON.stringify({ id: userId, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
+  return `ci.${payload}`;
+}
+
+function getTokenUserId(request: Request): string | null {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.replace("Bearer ", "").trim();
+  if (!token.startsWith("ci.")) return null;
+  try {
+    const payload = JSON.parse(atob(token.replace("ci.", "")));
+    if (payload.exp < Date.now()) return null;
+    return payload.id;
+  } catch { return null; }
+}
+// ── Auth handlers ─────────────────────────────────────────────────────────────
+
+async function authSignup(env: Env, body: any): Promise<Response> {
+  const { first_name, last_name, email, pw } = body;
+  if (!first_name || !last_name || !email || !pw) return badRequest("All fields required");
+  if (pw.length < 8) return badRequest("Password must be at least 8 characters");
+
+  const exists = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (exists) return json({ error: "An account with that email already exists" }, 409);
+
+  const id = uuid();
+  const hash = await hashPassword(pw);
+  await env.DB.prepare(
+    "INSERT INTO users (id, first_name, last_name, email, password_hash) VALUES (?, ?, ?, ?, ?)"
+  ).bind(id, first_name, last_name, email, hash).run();
+
+  const user = await env.DB.prepare("SELECT id, first_name, last_name, email, plan, created_at FROM users WHERE id = ?").bind(id).first();
+  return json({ token: makeToken(id), user }, 201);
+}
+
+async function authLogin(env: Env, body: any): Promise<Response> {
+  const { email, pw } = body;
+  if (!email || !pw) return badRequest("Email and password required");
+
+  const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first() as any;
+  if (!user) return json({ error: "Invalid email or password" }, 401);
+
+  const hash = await hashPassword(pw);
+  if (hash !== user.password_hash) return json({ error: "Invalid email or password" }, 401);
+
+  const { password_hash, ...safeUser } = user;
+  return json({ token: makeToken(user.id), user: safeUser });
+}
+
+async function authMe(env: Env, request: Request): Promise<Response> {
+  const userId = getTokenUserId(request);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
+
+  const user = await env.DB.prepare(
+    "SELECT id, first_name, last_name, email, plan, created_at FROM users WHERE id = ?"
+  ).bind(userId).first();
+  if (!user) return json({ error: "User not found" }, 404);
+  return json(user);
+}
+
 
 
 export default {
@@ -476,13 +557,13 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
       });
     }
 
-    if (method === "GET"  && path === "/campaigns") return getCampaigns(env);
-    if (method === "POST" && path === "/campaigns") return createCampaign(env, await request.json());
+    if (method === "GET"  && path === "/campaigns") return getCampaigns(env, request);
+    if (method === "POST" && path === "/campaigns") return createCampaign(env, await request.json(), request);
 
     const campaignMatch  = path.match(/^\/campaigns\/([^/]+)$/);
     const websiteMatch   = path.match(/^\/campaigns\/([^/]+)\/websites$/);
@@ -491,12 +572,19 @@ export default {
     const analyzeMatch   = path.match(/^\/campaigns\/([^/]+)\/analyze$/);
     const insightsMatch  = path.match(/^\/campaigns\/([^/]+)\/insights$/);
 
-    if (method === "GET"  && campaignMatch)  return getCampaign(env, campaignMatch[1]);
+    if (method === "GET"  && campaignMatch)  return getCampaign(env, campaignMatch[1], request);
+    if (method === "DELETE" && campaignMatch) return deleteCampaign(env, campaignMatch[1], request);
     if (method === "POST" && websiteMatch)   return addWebsite(env, websiteMatch[1], await request.json());
     if (method === "POST" && crawlMatch)     return triggerCrawl(env, crawlMatch[1]);
     if (method === "GET"  && pagesMatch)     return getPages(env, pagesMatch[1]);
     if (method === "POST" && analyzeMatch)   return analyzeCampaign(env, analyzeMatch[1]);
     if (method === "GET"  && insightsMatch)  return getInsights(env, insightsMatch[1]);
+
+    // New auth routes
+    if (method === "POST" && path === "/auth/signup")  return authSignup(env, await request.json() as any);
+    if (method === "POST" && path === "/auth/login")   return authLogin(env, await request.json() as any);
+    if (method === "GET"  && path === "/auth/me")      return authMe(env, request);
+    if (method === "POST" && path === "/auth/forgot-password") return json({ message: "If that email exists, a reset link was sent." });
 
    
     if (method === "GET" && path === "/debug/grok") {
@@ -516,31 +604,6 @@ export default {
     for (const message of batch.messages) {
       await crawlPage(env, message.body as any);
       message.ack();
-    }
-  },
-
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Get all active campaigns
-    const campaigns = await env.DB.prepare(
-      "SELECT * FROM campaigns WHERE status = 'active'"
-    ).all();
-
-    for (const campaign of campaigns.results as any[]) {
-      const websites = await env.DB.prepare(
-        "SELECT * FROM websites WHERE campaign_id = ?"
-      ).bind(campaign.id).all();
-
-      for (const site of websites.results as any[]) {
-        await env.QUEUE.send({
-          url: site.url,
-          campaignId: campaign.id,
-          websiteId: site.id,
-          baseUrl: site.url,
-          depth: 0,
-          maxDepth: 4,
-          maxPages: 500,
-        });
-      }
     }
   },
 };
