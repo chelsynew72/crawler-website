@@ -544,6 +544,30 @@ async function authMe(env: Env, request: Request): Promise<Response> {
   return json(user);
 }
 
+async function authFirebase(env: Env, body: any): Promise<Response> {
+  const { firebase_token, first_name, last_name, email, photo_url } = body;
+  if (!firebase_token || !email) return badRequest("firebase_token and email required");
+
+  // Check if user exists
+  let user = await env.DB.prepare(
+    "SELECT id, first_name, last_name, email, plan, created_at FROM users WHERE email = ?"
+  ).bind(email).first() as any;
+
+  if (!user) {
+    // Create new user from Google data
+    const id = uuid();
+    const hash = await hashPassword(crypto.randomUUID()); // random password since they use Google
+    await env.DB.prepare(
+      "INSERT INTO users (id, first_name, last_name, email, password_hash) VALUES (?, ?, ?, ?, ?)"
+    ).bind(id, first_name || 'User', last_name || '', email, hash).run();
+    user = await env.DB.prepare(
+      "SELECT id, first_name, last_name, email, plan, created_at FROM users WHERE id = ?"
+    ).bind(id).first();
+  }
+
+  return json({ token: makeToken(user.id), user });
+}
+
 
 
 export default {
@@ -583,6 +607,7 @@ export default {
     // New auth routes
     if (method === "POST" && path === "/auth/signup")  return authSignup(env, await request.json() as any);
     if (method === "POST" && path === "/auth/login")   return authLogin(env, await request.json() as any);
+    if (method === "POST" && path === "/auth/firebase") return authFirebase(env, await request.json());
     if (method === "GET"  && path === "/auth/me")      return authMe(env, request);
     if (method === "POST" && path === "/auth/forgot-password") return json({ message: "If that email exists, a reset link was sent." });
 
