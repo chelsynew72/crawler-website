@@ -14,7 +14,6 @@ interface Env {
 function uuid(): string {
   return crypto.randomUUID();
 }
-
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -23,6 +22,7 @@ function json(data: unknown, status = 200): Response {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
     },
   });
 }
@@ -576,12 +576,14 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    if (method === "OPTIONS") {
+   if (method === "OPTIONS") {
       return new Response(null, {
+        status: 204,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Max-Age": "86400",
         },
       });
     }
